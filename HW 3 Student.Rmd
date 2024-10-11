@@ -1,0 +1,212 @@
+---
+title: "HW 3"
+author: "Uma Nair"
+date: "9/24/2024"
+output: 
+  html_document:
+    number_sections: true
+---
+
+
+Let $E[X] = \mu$.  Show that $Var[X] := E[(X-E[X])^2] = E[X^2]-(E[X])^2$.  Note, all you have to do is show the second equality (the first is our definition from class). 
+
+#  Var[X] = E[(X-E[X])^2]
+#         = E[X^2 - 2X * E[X] + (E[X])^2]
+#         = E[X^2]-2E[X * E[X]] + E[(E[X])^2]
+#         = E[X^2] - 2 * E[X] * E[X] + (E[X])^2  (E[X] is a constant)
+#         = E[X^2] - 2(E[X])^2 + (E[X])^2
+#         = E[X^2] - (E[X])^2
+
+
+
+
+In the computational section of this homework, we will discuss support vector machines and tree-based methods.  I will begin by simulating some data for you to use with SVM. 
+
+```{r}
+library(e1071)
+set.seed(1) 
+x=matrix(rnorm(200*2),ncol=2)
+x[1:100,]=x[1:100,]+2
+x[101:150,]=x[101:150,]-2
+y=c(rep(1,150),rep(2,50))
+dat=data.frame(x=x,y=as.factor(y))
+plot(x, col=y)
+
+```
+
+
+##
+
+Quite clearly, the above data is not linearly separable.  Create a training-testing partition with 100 random observations in the training partition.  Fit an svm on this training data using the radial kernel, and tuning parameters $\gamma=1$, cost $=1$.  Plot the svm on the training data.  
+
+```{r}
+set.seed(1)
+train = sample(200,100)
+svmfit = svm(y ~ ., data = dat, kernel = "radial", cost = 1, gamma = 1, scale = FALSE)
+plot(svmfit, dat[train,])
+```
+
+##
+
+Notice that the above decision boundary is decidedly non-linear.  It seems to perform reasonably well, but there are indeed some misclassifications.  Let's see if increasing the cost ^[Remember this is a parameter that decides how smooth your decision boundary should be] helps our classification error rate.  Refit the svm with the radial kernel, $\gamma=1$, and a cost of 10000.  Plot this svm on the training data. 
+
+```{r}
+library(e1071)
+svmfit = svm(y~., data = dat[train,], kernel = "radial", gamma = 1, cost=10000)
+plot(svmfit, dat[train,])
+```
+
+##
+
+It would appear that we are better capturing the training data, but comment on the dangers (if any exist), of such a model. 
+
+*There could be potential issues regarding overfitting of the data and related to the decision boundary. A high cost value increases the "penalty" or consequence of misclassified points, making the model sensitive to the training data. This can result in a model that fits the training data too closely, causing it to capture noise rather than the underlying patterns present. With a gamma set to a value of 1, the influence of each training point becomes very strong. This can lead to a highly complex decision boundary, making the model less generalizable when it encounters new data. Finally, a high cost may lead to longer amounts of time needed to train the data and increased computational complexity. This could be an issue for larger data sets, as the model seeks to minimize misclassifications aggressively.*
+
+## 
+
+Create a confusion matrix by using this svm to predict on the current testing partition.  Comment on the confusion matrix.  Is there any disparity in our classification results?    
+
+```{r}
+#remove eval = FALSE in above
+library(e1071)
+table(true=dat[-train,"y"], pred=predict(svmfit, newdata=dat[-train,]))
+```
+
+
+##
+
+Is this disparity because of imbalance in the training/testing partition?  Find the proportion of class `2` in your training partition and see if it is broadly representative of the underlying 25\% of class 2 in the data as a whole.  
+
+```{r}
+library(e1071)
+
+sum(dat[train,3]==2)/100
+
+```
+
+*The proportion of Class 2 is 29%, it is close to the underlying total data set proportion of 25%. This shows that the the disparity between the two proportions is most likely not caused by an imbalance of the training-testing data partition. There is a chance that the high value of the variable Cost was too high and led to an overfitting of the data. Since overfitting makes the model overemphasize accuracy, the model might have not been to predict the testing observations well since it was too closely fit with the training data. To fix this issue, the Cost value could be decreased along with a gamma value that pairs effectively with it to maintain accuracy and avoiding overfitting the data. *
+
+##
+
+Let's try and balance the above to solutions via cross-validation.  Using the `tune` function, pass in the training data, and a list of the following cost and $\gamma$ values: {0.1, 1, 10, 100, 1000} and {0.5, 1,2,3,4}.  Save the output of this function in a variable called `tune.out`.  
+
+```{r}
+set.seed(1)
+
+tune.out <- tune(svm, y~., data = dat[train,], kernel = "radial", ranges = list(cost = c(0.1,1,10,100,1000), gamma = c(0.5,1,2,3,4)))
+                 
+summary(tune.out)
+
+```
+
+I will take `tune.out` and use the best model according to error rate to test on our data.  I will report a confusion matrix corresponding to the 100 predictions.  
+
+
+```{r}
+table(true=dat[-train,"y"], pred=predict(tune.out$best.model, newdata=dat[-train,]))
+```
+
+##
+
+Comment on the confusion matrix.  How have we improved upon the model in question 2 and what qualifications are still necessary for this improved model.  
+
+*The model has improved significantly and there is reduced overfitting. There is some misclassification present due to an underlying inbalance of the two classes, it is not necessarily due to the model being a bad one in any sense.*
+
+# 
+Let's turn now to decision trees.  
+
+```{r}
+
+library(kmed)
+data(heart)
+library(tree)
+
+```
+
+## 
+
+The response variable is currently a categorical variable with four levels.  Convert heart disease into binary categorical variable.  Then, ensure that it is properly stored as a factor. 
+
+```{r}
+
+for (i in 1:length(heart$class)) {
+  if (heart$class[i] > 0){
+    heart$class[i] = 1
+  }
+}
+
+heart$class = as.factor(heart$class)
+
+
+```
+
+## 
+
+Train a classification tree on a 240 observation training subset (using the seed I have set for you).  Plot the tree.  
+
+```{r}
+set.seed(101)
+
+train = sample(1:nrow(heart), 240)
+
+tree.heart = tree(class~., heart, subset = train, method = "class")
+
+plot(tree.heart)
+text(tree.heart, pretty = 0)
+```
+
+
+## 
+
+Use the trained model to classify the remaining testing points.  Create a confusion matrix to evaluate performance.  Report the classification error rate.  
+
+```{r}
+
+tree.pred = predict(tree.heart, heart[-train,], type = "class")
+
+with(heart[-train,], table(tree.pred, class))
+
+
+#classification error rate:
+1-(28+18)/57
+```
+
+##  
+
+Above we have a fully grown (bushy) tree.  Now, cross validate it using the `cv.tree` command.  Specify cross validation to be done according to the misclassification rate.  Choose an ideal number of splits, and plot this tree.  Finally, use this pruned tree to test on the testing set.  Report a confusion matrix and the misclassification rate.  
+
+```{r}
+set.seed(101)
+
+#cross validation
+cv.heart = cv.tree(tree.heart, FUN = prune.misclass) #cross validation
+cv.heart
+
+#pruning tree
+prune.heart <- prune.misclass(tree.heart, best = 3) 
+plot(prune.heart)
+text(prune.heart, pretty=0)
+
+#confusion matrix
+tree.pred = predict(prune.heart, heart[-train,], type = "class")
+with(heart[-train,], table(tree.pred, class))
+
+#misclassification error rate
+1-((26+17)/57)
+
+```
+
+
+##
+
+Discuss the trade-off in accuracy and interpretability in pruning the above tree. 
+
+*Pruning can help to reduce overfitting by simplifying the model and making it less complex. Less complex trees can be better at making accurate predictions on data it has never seen before. Additionally, a pruned tree is easier to understand and interpret due to the fact it has fewer branches and nodes. This makes it easier to follow the decisions the model makes in each step of the tree. However, if branches are pruned, the model could potentially lose information, and this can lead to decreased accuracy, especially if the branches that have been pruned capture significant patterns/insights in the data. A simpler model might not highlight nuances and important insights in the data, potentially oversimplifying complex relationships, leading to misinterpretations of the data and the full truth not being uncovered.*
+
+## 
+
+Discuss the ways a decision tree could manifest algorithmic bias.  
+
+*Algorithmic bias can manifest in multiple ways regarding a decision tree. Algorithmic bias can occur if the data that was used to train the decision tree was not randomly sampled and a poor representation of the overall population. If the decision tree model is trained with "bad data", it will not be able to generalize and accurate classify data it has never seen before. Decision trees are prone to overfitting, especially when they are complex. Complex models usually are prone to picking up noise instead of patterns in data, making them less generalizable and more biased. Disproportionate overfitting can affect minority groups if the noise reflects their unique but unrepresentative experiences. *
+
+
